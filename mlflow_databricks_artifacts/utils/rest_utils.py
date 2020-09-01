@@ -6,9 +6,9 @@ import requests
 
 from mlflow import __version__
 from mlflow.exceptions import MlflowException, RestException
+from mlflow.protos import databricks_pb2
+from mlflow.protos.databricks_pb2 import INVALID_PARAMETER_VALUE
 
-from mlflow_databricks_artifacts.protos import databricks_pb2
-from mlflow_databricks_artifacts.protos.databricks_pb2 import INVALID_PARAMETER_VALUE
 from mlflow_databricks_artifacts.utils.proto_json_utils import parse_dict
 from mlflow_databricks_artifacts.utils.string_utils import strip_suffix
 

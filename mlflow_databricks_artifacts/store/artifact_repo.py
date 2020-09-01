@@ -12,15 +12,24 @@ from mlflow import get_tracking_uri
 from mlflow.entities import FileInfo
 from mlflow.exceptions import MlflowException
 from mlflow.store.artifact.artifact_repo import ArtifactRepository
+from mlflow.protos.service_pb2 import MlflowService, GetRun, ListArtifacts
+from mlflow.protos.databricks_pb2 import INVALID_PARAMETER_VALUE, INTERNAL_ERROR
 
-from mlflow_databricks_artifacts.protos.databricks_pb2 import INVALID_PARAMETER_VALUE, INTERNAL_ERROR
-from mlflow_databricks_artifacts.protos.databricks_artifacts_pb2 import (
-    DatabricksMlflowArtifactsService,
-    GetCredentialsForWrite,
-    GetCredentialsForRead,
-    ArtifactCredentialType,
-)
-from mlflow_databricks_artifacts.protos.service_pb2 import MlflowService, GetRun, ListArtifacts
+try:
+    from mlflow.protos.databricks_artifacts_pb2 import (
+        DatabricksMlflowArtifactsService,
+        GetCredentialsForWrite,
+        GetCredentialsForRead,
+        ArtifactCredentialType,
+    )
+except Exception as e:
+    from mlflow_databricks_artifacts.protos.databricks_artifacts_pb2 import (
+        DatabricksMlflowArtifactsService,
+        GetCredentialsForWrite,
+        GetCredentialsForRead,
+        ArtifactCredentialType,
+    )
+
 from mlflow_databricks_artifacts.utils.databricks_utils import get_databricks_host_creds
 from mlflow_databricks_artifacts.utils.file_utils import relative_path_to_artifact_path, yield_file_in_chunks
 from mlflow_databricks_artifacts.utils.proto_json_utils import message_to_json
@@ -273,37 +282,28 @@ class DatabricksArtifactRepository(ArtifactRepository):
             run_relative_path = posixpath.join(self.run_relative_artifact_repo_root_path, path)
         else:
             run_relative_path = self.run_relative_artifact_repo_root_path
+
+        json_body = message_to_json(
+            ListArtifacts(run_id=self.run_id, path=run_relative_path)
+        )
+        response = self._call_endpoint(MlflowService, ListArtifacts, json_body)
+        artifact_list = response.files
+        # If `path` is a file, ListArtifacts returns a single list element with the
+        # same name as `path`. The list_artifacts API expects us to return an empty list in this
+        # case, so we do so here.
+        if (
+            len(artifact_list) == 1
+            and artifact_list[0].path == run_relative_path
+            and not artifact_list[0].is_dir
+        ):
+            return []
         infos = []
-        page_token = None
-        while True:
-            if page_token:
-                json_body = message_to_json(
-                    ListArtifacts(run_id=self.run_id, path=run_relative_path, page_token=page_token)
-                )
-            else:
-                json_body = message_to_json(
-                    ListArtifacts(run_id=self.run_id, path=run_relative_path)
-                )
-            response = self._call_endpoint(MlflowService, ListArtifacts, json_body)
-            artifact_list = response.files
-            # If `path` is a file, ListArtifacts returns a single list element with the
-            # same name as `path`. The list_artifacts API expects us to return an empty list in this
-            # case, so we do so here.
-            if (
-                len(artifact_list) == 1
-                and artifact_list[0].path == run_relative_path
-                and not artifact_list[0].is_dir
-            ):
-                return []
-            for output_file in artifact_list:
-                file_rel_path = posixpath.relpath(
-                    path=output_file.path, start=self.run_relative_artifact_repo_root_path
-                )
-                artifact_size = None if output_file.is_dir else output_file.file_size
-                infos.append(FileInfo(file_rel_path, output_file.is_dir, artifact_size))
-            if len(artifact_list) == 0 or not response.next_page_token:
-                break
-            page_token = response.next_page_token
+        for output_file in artifact_list:
+            file_rel_path = posixpath.relpath(
+                path=output_file.path, start=self.run_relative_artifact_repo_root_path
+            )
+            artifact_size = None if output_file.is_dir else output_file.file_size
+            infos.append(FileInfo(file_rel_path, output_file.is_dir, artifact_size))
         return infos
 
     def _download_file(self, remote_file_path, local_path):
