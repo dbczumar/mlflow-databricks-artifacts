@@ -3,8 +3,17 @@ import os
 import posixpath
 
 from mlflow.exceptions import MlflowException
-from mlflow.store.artifact.dbfs_artifact_repo import DbfsRestArtifactRepository
-from mlflow.store.artifact.local_artifact_repo import LocalArtifactRepository
+
+try:
+    from mlflow.store.artifact.dbfs_artifact_repo import DbfsRestArtifactRepository
+    from mlflow.store.artifact.local_artifact_repo import LocalArtifactRepository
+except ImportError:
+    # Older versions of MLflow placed artifact repository implementations
+    # in the top-level `mlflow.store` module, rather than the
+    # `mlflow.store.artifact` module; `DbfsArtifactRepository` was also
+    # renamed to `DbfsRestArtifactRepository`
+    from mlflow.store.dbfs_artifact_repo import DbfsArtifactRepository as DbfsRestArtifactRepository
+    from mlflow.store.local_artifact_repo import LocalArtifactRepository
 
 
 def dbfs_artifact_repo_factory(artifact_uri):

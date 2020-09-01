@@ -5,13 +5,10 @@ import posixpath
 import requests
 import uuid
 
-from azure.core.exceptions import ClientAuthenticationError
-from azure.storage.blob import BlobClient
-
 from mlflow import get_tracking_uri
 from mlflow.entities import FileInfo
 from mlflow.exceptions import MlflowException
-from mlflow.store.artifact.artifact_repo import ArtifactRepository
+from mlflow.store import artifact_repo
 from mlflow.protos.service_pb2 import MlflowService, GetRun, ListArtifacts
 from mlflow.protos.databricks_pb2 import INVALID_PARAMETER_VALUE, INTERNAL_ERROR
 
@@ -30,10 +27,16 @@ except Exception as e:
         ArtifactCredentialType,
     )
 
+from mlflow_databricks_artifacts.azure.client import put_block, put_block_list
 from mlflow_databricks_artifacts.utils.databricks_utils import get_databricks_host_creds
 from mlflow_databricks_artifacts.utils.file_utils import relative_path_to_artifact_path, yield_file_in_chunks
 from mlflow_databricks_artifacts.utils.proto_json_utils import message_to_json
-from mlflow_databricks_artifacts.utils.rest_utils import call_endpoint, extract_api_info_for_service
+from mlflow_databricks_artifacts.utils.rest_utils import (
+    call_mlflow_endpoint,
+    extract_api_info_for_service,
+    http_put,
+    http_get,
+)
 from mlflow_databricks_artifacts.utils.uri import (
     extract_and_normalize_path,
     get_databricks_profile_uri_from_artifact_uri,
@@ -52,7 +55,7 @@ _SERVICE_AND_METHOD_TO_INFO = {
 }
 
 
-class DatabricksArtifactRepository(ArtifactRepository):
+class DatabricksArtifactRepository(artifact_repo.ArtifactRepository):
     """
     Performs storage operations on artifacts in the access-controlled
     `dbfs:/databricks/mlflow-tracking` location.
@@ -125,7 +128,7 @@ class DatabricksArtifactRepository(ArtifactRepository):
         db_creds = get_databricks_host_creds(self.databricks_profile_uri)
         endpoint, method = _SERVICE_AND_METHOD_TO_INFO[service][api]
         response_proto = api.Response()
-        return call_endpoint(db_creds, endpoint, method, json_body, response_proto)
+        return call_mlflow_endpoint(db_creds, endpoint, method, json_body, response_proto)
 
     def _get_run_artifact_root(self, run_id):
         json_body = message_to_json(GetRun(run_id=run_id))
@@ -162,37 +165,40 @@ class DatabricksArtifactRepository(ArtifactRepository):
         """
         try:
             headers = self._extract_headers_from_credentials(credentials.headers)
-            service = BlobClient.from_blob_url(
-                blob_url=credentials.signed_uri, credential=None, headers=headers
-            )
             uploading_block_list = list()
             for chunk in yield_file_in_chunks(local_file, _AZURE_MAX_BLOCK_CHUNK_SIZE):
-                block_id = base64.b64encode(uuid.uuid4().hex.encode())
+                # Base64-encode a UUID, producing a UTF8-encoded bytestring. Then, decode
+                # the bytestring for compliance with Azure Blob Storage API requests
+                block_id = base64.b64encode(uuid.uuid4().hex.encode()).decode("utf-8")
                 try:
-                    service.stage_block(block_id, chunk, headers=headers)
-                except ClientAuthenticationError:
+                    put_block(credentials.signed_uri, block_id, chunk, headers=headers)
+                except requests.HTTPError as e:
+                    if e.response.status_code in [401, 403]:
+                        _logger.warning(
+                            "Failed to authorize request, possibly due to credential expiration."
+                            "Refreshing credentials and trying again.."
+                        )
+                        credentials = self._get_write_credentials(
+                            self.run_id, artifact_path
+                        ).credentials
+                        put_block(credentials.signed_uri, block_id, chunk, headers=headers)
+                    else:
+                        raise e
+                uploading_block_list.append(block_id)
+            try:
+                put_block_list(credentials.signed_uri, uploading_block_list, headers=headers)
+            except requests.HTTPError as e:
+                if e.response.status_code in [401, 403]:
                     _logger.warning(
                         "Failed to authorize request, possibly due to credential expiration."
                         "Refreshing credentials and trying again.."
                     )
                     credentials = self._get_write_credentials(
                         self.run_id, artifact_path
-                    ).credentials.signed_uri
-                    service = BlobClient.from_blob_url(blob_url=credentials, credential=None)
-                    service.stage_block(block_id, chunk, headers=headers)
-                uploading_block_list.append(block_id)
-            try:
-                service.commit_block_list(uploading_block_list, headers=headers)
-            except ClientAuthenticationError:
-                _logger.warning(
-                    "Failed to authorize request, possibly due to credential expiration."
-                    "Refreshing credentials and trying again.."
-                )
-                credentials = self._get_write_credentials(
-                    self.run_id, artifact_path
-                ).credentials.signed_uri
-                service = BlobClient.from_blob_url(blob_url=credentials, credential=None)
-                service.commit_block_list(uploading_block_list, headers=headers)
+                    ).credentials
+                    put_block_list(credentials.signed_uri, uploading_block_list, headers=headers)
+                else:
+                    raise e
         except Exception as err:
             raise MlflowException(err)
 
@@ -202,10 +208,10 @@ class DatabricksArtifactRepository(ArtifactRepository):
             signed_write_uri = credentials.signed_uri
             # Putting an empty file in a request by reading file bytes gives 501 error.
             if os.stat(local_file).st_size == 0:
-                put_request = requests.put(signed_write_uri, "", headers=headers)
+                put_request = http_put(signed_write_uri, "", headers=headers)
             else:
                 with open(local_file, "rb") as file:
-                    put_request = requests.put(signed_write_uri, file, headers=headers)
+                    put_request = http_put(signed_write_uri, file, headers=headers)
             put_request.raise_for_status()
         except Exception as err:
             raise MlflowException(err)
@@ -227,7 +233,7 @@ class DatabricksArtifactRepository(ArtifactRepository):
         Since the download mechanism for both cloud services, i.e., Azure and AWS is the same,
         a single download method is sufficient.
 
-        The default working of `requests.get` is to download the entire response body immediately.
+        The default behavior of `requests.get` is to download the entire response body immediately.
         However, this could be inefficient for large files. Hence the parameter `stream` is set to
         true. This only downloads the response headers at first and keeps the connection open,
         allowing content retrieval to be made via `iter_content`.
@@ -242,7 +248,7 @@ class DatabricksArtifactRepository(ArtifactRepository):
             )
         try:
             signed_read_uri = cloud_credential.signed_uri
-            with requests.get(signed_read_uri, stream=True) as response:
+            with http_get(signed_read_uri, stream=True) as response:
                 response.raise_for_status()
                 with open(local_file_path, "wb") as output_file:
                     for chunk in response.iter_content(chunk_size=_DOWNLOAD_CHUNK_SIZE):

@@ -3,6 +3,8 @@ import time
 import logging
 import json
 import requests
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 
 from mlflow import __version__
 from mlflow.exceptions import MlflowException, RestException
@@ -12,14 +14,24 @@ from mlflow.protos.databricks_pb2 import INVALID_PARAMETER_VALUE
 from mlflow_databricks_artifacts.utils.proto_json_utils import parse_dict
 from mlflow_databricks_artifacts.utils.string_utils import strip_suffix
 
-RESOURCE_DOES_NOT_EXIST = "RESOURCE_DOES_NOT_EXIST"
-
 _logger = logging.getLogger(__name__)
 
 _DEFAULT_HEADERS = {"User-Agent": "mlflow-python-client/%s" % __version__}
 
+# Response codes that generally indicate transient network failures and merit client retries,
+# based on guidance from cloud service providers
+# (https://docs.microsoft.com/en-us/azure/architecture/best-practices/retry-service-specific#general-rest-and-retry-guidelines)
+TRANSIENT_FAILURE_RESPONSE_CODES = [
+    408, # Request Timeout
+    429, # Too Many Requests
+    500, # Internal Server Error
+    502, # Bad Gateway
+    503, # Service Unavailable
+    504, # Gateway Timeout
+]
 
-def http_request(
+
+def mlflow_http_request(
     host_creds, endpoint, retries=3, retry_interval=3, max_rate_limit_interval=60, **kwargs
 ):
     """
@@ -102,14 +114,6 @@ def _can_parse_as_json(string):
         return False
 
 
-def http_request_safe(host_creds, endpoint, **kwargs):
-    """
-    Wrapper around ``http_request`` that also verifies that the request succeeds with code 200.
-    """
-    response = http_request(host_creds=host_creds, endpoint=endpoint, **kwargs)
-    return verify_rest_response(response, endpoint)
-
-
 def verify_rest_response(response, endpoint):
     """Verify the return code and raise exception if the request was not successful."""
     if response.status_code != 200:
@@ -140,16 +144,16 @@ def extract_api_info_for_service(service, path_prefix):
     return res
 
 
-def call_endpoint(host_creds, endpoint, method, json_body, response_proto):
+def call_mlflow_endpoint(host_creds, endpoint, method, json_body, response_proto):
     # Convert json string to json dictionary, to pass to requests
     if json_body:
         json_body = json.loads(json_body)
     if method == "GET":
-        response = http_request(
+        response = mlflow_http_request(
             host_creds=host_creds, endpoint=endpoint, method=method, params=json_body
         )
     else:
-        response = http_request(
+        response = mlflow_http_request(
             host_creds=host_creds, endpoint=endpoint, method=method, json=json_body
         )
     response = verify_rest_response(response, endpoint)
@@ -214,3 +218,57 @@ class MlflowHostCreds(object):
         self.ignore_tls_verification = ignore_tls_verification
         self.client_cert_path = client_cert_path
         self.server_cert_path = server_cert_path
+
+
+def http_put(*args, **kwargs):
+    """
+    Performs an HTTP PUT request using Python's `requests` module with an automatic
+    retry policy of 5 attempts using exponential backoff for the following response codes:
+
+        - 408 (Request Timeout)
+        - 429 (Too Many Requests)
+        - 500 (Internal Server Error)
+        - 502 (Bad Gateway)
+        - 503 (Service Unavailable)
+        - 504 (Gateway Timeout)
+
+    :args: Positional arguments to pass to `requests.Session.put()`
+    :kwargs: Keyword arguments to pass to `requests.Session.put()`
+    """
+    retry_strategy = Retry(
+        total=5,
+        status_forcelist=TRANSIENT_FAILURE_RESPONSE_CODES,
+        backoff_factor=1,
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    http = requests.Session()
+    http.mount("https://", adapter)
+    http.mount("http://", adapter)
+    return http.put(*args, **kwargs)
+
+
+def http_get(*args, **kwargs):
+    """
+    Performs an HTTP GET request using Python's `requests` module with an automatic
+    retry policy of 5 attempts using exponential backoff for the following response codes:
+
+        - 408 (Request Timeout)
+        - 429 (Too Many Requests)
+        - 500 (Internal Server Error)
+        - 502 (Bad Gateway)
+        - 503 (Service Unavailable)
+        - 504 (Gateway Timeout)
+
+    :args: Positional arguments to pass to `requests.Session.get()`
+    :kwargs: Keyword arguments to pass to `requests.Session.get()`
+    """
+    retry_strategy = Retry(
+        total=5,
+        status_forcelist=TRANSIENT_FAILURE_RESPONSE_CODES,
+        backoff_factor=1,
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    http = requests.Session()
+    http.mount("https://", adapter)
+    http.mount("http://", adapter)
+    return http.get(*args, **kwargs)
