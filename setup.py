@@ -16,9 +16,7 @@ setup(
     ],
     entry_points={
         "mlflow.artifact_repository": [
-            # "dbfs=mlflow_databricks_artifacts.store.artifact_repo:DatabricksArtifactRepository",
             "dbfs=mlflow_databricks_artifacts.store.entrypoint:dbfs_artifact_repo_factory",
-            # "dbfs=mlflow_databricks_artifacts.store:DatabricksArtifactRepository"
         ]
     },
 )
