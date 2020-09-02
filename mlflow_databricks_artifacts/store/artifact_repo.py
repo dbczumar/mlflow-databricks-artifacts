@@ -217,9 +217,9 @@ class DatabricksArtifactRepository(artifact_repo.ArtifactRepository):
             raise MlflowException(err)
 
     def _upload_to_cloud(self, cloud_credentials, local_file, artifact_path):
-        if cloud_credentials.credentials.type == ArtifactCredentialType.AZURE_SAS_URI:
+        if cloud_credentials.credentials.type == ArtifactCredentialType.Value('AZURE_SAS_URI'):
             self._azure_upload_file(cloud_credentials.credentials, local_file, artifact_path)
-        elif cloud_credentials.credentials.type == ArtifactCredentialType.AWS_PRESIGNED_URL:
+        elif cloud_credentials.credentials.type == ArtifactCredentialType.Value('AWS_PRESIGNED_URL'):
             self._aws_upload_file(cloud_credentials.credentials, local_file)
         else:
             raise MlflowException(
@@ -240,8 +240,8 @@ class DatabricksArtifactRepository(artifact_repo.ArtifactRepository):
         In addition, since the connection is kept open, refreshing credentials is not required.
         """
         if cloud_credential.type not in [
-            ArtifactCredentialType.AZURE_SAS_URI,
-            ArtifactCredentialType.AWS_PRESIGNED_URL,
+            ArtifactCredentialType.Value('AZURE_SAS_URI'),
+            ArtifactCredentialType.Value('AWS_PRESIGNED_URL'),
         ]:
             raise MlflowException(
                 message="Cloud provider not supported.", error_code=INTERNAL_ERROR
