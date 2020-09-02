@@ -19,7 +19,7 @@ try:
         GetCredentialsForRead,
         ArtifactCredentialType,
     )
-except Exception as e:
+except Exception:
     from mlflow_databricks_artifacts.protos.databricks_artifacts_pb2 import (
         DatabricksMlflowArtifactsService,
         GetCredentialsForWrite,

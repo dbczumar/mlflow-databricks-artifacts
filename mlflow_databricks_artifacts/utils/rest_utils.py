@@ -220,10 +220,10 @@ class MlflowHostCreds(object):
         self.server_cert_path = server_cert_path
 
 
-def http_put(*args, **kwargs):
+def http_put(*args, retry_attempts=5, **kwargs):
     """
-    Performs an HTTP PUT request using Python's `requests` module with an automatic
-    retry policy of 5 attempts using exponential backoff for the following response codes:
+    Performs an HTTP PUT request using Python's `requests` module with an automatic retry 
+    policy of `retry_attempts` using exponential backoff for the following response codes:
 
         - 408 (Request Timeout)
         - 429 (Too Many Requests)
@@ -236,7 +236,8 @@ def http_put(*args, **kwargs):
     :kwargs: Keyword arguments to pass to `requests.Session.put()`
     """
     retry_strategy = Retry(
-        total=5,
+        total=0,
+        status=retry_attempts,
         status_forcelist=TRANSIENT_FAILURE_RESPONSE_CODES,
         backoff_factor=1,
     )
@@ -247,10 +248,10 @@ def http_put(*args, **kwargs):
     return http.put(*args, **kwargs)
 
 
-def http_get(*args, **kwargs):
+def http_get(*args, retry_attempts=5, **kwargs):
     """
-    Performs an HTTP GET request using Python's `requests` module with an automatic
-    retry policy of 5 attempts using exponential backoff for the following response codes:
+    Performs an HTTP GET request using Python's `requests` module with an automatic retry 
+    policy of `retry_attempts` using exponential backoff for the following response codes:
 
         - 408 (Request Timeout)
         - 429 (Too Many Requests)
@@ -263,7 +264,8 @@ def http_get(*args, **kwargs):
     :kwargs: Keyword arguments to pass to `requests.Session.get()`
     """
     retry_strategy = Retry(
-        total=5,
+        total=0,
+        status=retry_attempts,
         status_forcelist=TRANSIENT_FAILURE_RESPONSE_CODES,
         backoff_factor=1,
     )
