@@ -216,7 +216,7 @@ class MlflowHostCreds(object):
         self.server_cert_path = server_cert_path
 
 
-def http_put(*args, retry_attempts=5, **kwargs):
+def http_put(*args, **kwargs):
     """
     Performs an HTTP PUT request using Python's `requests` module with an automatic retry 
     policy of `retry_attempts` using exponential backoff for the following response codes:
@@ -231,6 +231,7 @@ def http_put(*args, retry_attempts=5, **kwargs):
     :args: Positional arguments to pass to `requests.Session.put()`
     :kwargs: Keyword arguments to pass to `requests.Session.put()`
     """
+    retry_attempts = kwargs.get('retry_attempts', 5)
     retry_strategy = Retry(
         total=0,
         status=retry_attempts,
@@ -244,7 +245,7 @@ def http_put(*args, retry_attempts=5, **kwargs):
     return http.put(*args, **kwargs)
 
 
-def http_get(*args, retry_attempts=5, **kwargs):
+def http_get(*args, **kwargs):
     """
     Performs an HTTP GET request using Python's `requests` module with an automatic retry 
     policy of `retry_attempts` using exponential backoff for the following response codes:
@@ -259,6 +260,7 @@ def http_get(*args, retry_attempts=5, **kwargs):
     :args: Positional arguments to pass to `requests.Session.get()`
     :kwargs: Keyword arguments to pass to `requests.Session.get()`
     """
+    retry_attempts = kwargs.get('retry_attempts', 5)
     retry_strategy = Retry(
         total=0,
         status=retry_attempts,
