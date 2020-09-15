@@ -233,7 +233,7 @@ def http_put(*args, **kwargs):
     """
     retry_attempts = kwargs.get('retry_attempts', 5)
     retry_strategy = Retry(
-        total=0,
+        total=None,
         status=retry_attempts,
         status_forcelist=TRANSIENT_FAILURE_RESPONSE_CODES,
         backoff_factor=1,
@@ -262,7 +262,7 @@ def http_get(*args, **kwargs):
     """
     retry_attempts = kwargs.get('retry_attempts', 5)
     retry_strategy = Retry(
-        total=0,
+        total=None,
         status=retry_attempts,
         status_forcelist=TRANSIENT_FAILURE_RESPONSE_CODES,
         backoff_factor=1,
