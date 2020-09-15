@@ -1,7 +1,9 @@
 import json
 import os
 import posixpath
+from distutils.version import LooseVersion
 
+import mlflow
 from mlflow.exceptions import MlflowException
 
 try:
@@ -14,6 +16,9 @@ except ImportError:
     # renamed to `DbfsRestArtifactRepository`
     from mlflow.store.dbfs_artifact_repo import DbfsArtifactRepository as DbfsRestArtifactRepository
     from mlflow.store.local_artifact_repo import LocalArtifactRepository
+
+
+USE_FUSE_ENV_VAR = "MLFLOW_ENABLE_DBFS_FUSE_ARTIFACT_REPO"
 
 
 def dbfs_artifact_repo_factory(artifact_uri):
@@ -31,6 +36,13 @@ def dbfs_artifact_repo_factory(artifact_uri):
     :param artifact_uri: DBFS root artifact URI (string).
     :return: Subclass of ArtifactRepository capable of storing artifacts on DBFS.
     """
+    try:
+        if supports_acled_artifacts(mlflow.__version__):
+            from mlflow.store.artifact.dbfs_artifact_repo import dbfs_artifact_repo_factory
+            return dbfs_artifact_repo_factory(artifact_uri)
+    except Exception:
+        pass
+
     # For some reason, we must import modules specific to this package within the
     # entrypoint function rather than the top-level module. Otherwise, entrypoint
     # registration fails with import errors
@@ -72,3 +84,11 @@ def dbfs_artifact_repo_factory(artifact_uri):
         file_uri = "file:///dbfs/{}".format(strip_prefix(final_artifact_uri, "dbfs:/"))
         return LocalArtifactRepository(file_uri)
     return DbfsRestArtifactRepository(cleaned_artifact_uri)
+
+
+def supports_acled_artifacts(mlflow_version):
+    """
+    :return: `True` if the given version of MLflow provides native support for
+             ACL'ed artifacts. `False` otherwise.
+    """
+    return LooseVersion(mlflow_version) >= LooseVersion("1.9.1")

@@ -11,10 +11,10 @@ from mlflow.exceptions import MlflowException, RestException
 from mlflow.protos import databricks_pb2
 from mlflow.protos.databricks_pb2 import INVALID_PARAMETER_VALUE
 
+from mlflow_databricks_artifacts.utils.logging_utils import eprint
 from mlflow_databricks_artifacts.utils.proto_json_utils import parse_dict
 from mlflow_databricks_artifacts.utils.string_utils import strip_suffix
 
-_logger = logging.getLogger(__name__)
 
 _DEFAULT_HEADERS = {"User-Agent": "mlflow-python-client/%s" % __version__}
 
@@ -65,17 +65,18 @@ def mlflow_http_request(
     if host_creds.client_cert_path is not None:
         kwargs["cert"] = host_creds.client_cert_path
 
+    cleaned_hostname = strip_suffix(hostname, "/")
+    url = "%s%s" % (cleaned_hostname, endpoint)
+
     def request_with_ratelimit_retries(max_rate_limit_interval, **kwargs):
         response = requests.request(**kwargs)
         time_left = max_rate_limit_interval
         sleep = 1
         while response.status_code == 429 and time_left > 0:
-            _logger.warning(
-                "API request to {path} returned status code 429 (Rate limit exceeded). "
+            eprint(
+                "API request to %s returned status code 429 (Rate limit exceeded). "
                 "Retrying in %d seconds. "
-                "Will continue to retry 429s for up to %d seconds.",
-                sleep,
-                time_left,
+                "Will continue to retry 429s for up to %d seconds." % (url, sleep, time_left),
             )
             time.sleep(sleep)
             time_left -= sleep
@@ -83,8 +84,6 @@ def mlflow_http_request(
             sleep = min(time_left, sleep * 2)  # sleep for 1, 2, 4, ... seconds;
         return response
 
-    cleaned_hostname = strip_suffix(hostname, "/")
-    url = "%s%s" % (cleaned_hostname, endpoint)
     for i in range(retries):
         response = request_with_ratelimit_retries(
             max_rate_limit_interval, url=url, headers=headers, verify=verify, **kwargs
@@ -92,13 +91,10 @@ def mlflow_http_request(
         if response.status_code >= 200 and response.status_code < 500:
             return response
         else:
-            _logger.error(
+            eprint(
                 "API request to %s failed with code %s != 200, retrying up to %s more times. "
-                "API response body: %s",
-                url,
-                response.status_code,
-                retries - i - 1,
-                response.text,
+                "API response body: %s"
+                % (url, response.status_code, retries - i - 1, response.text)
             )
             time.sleep(retry_interval)
     raise MlflowException(

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from six.moves import urllib
 
 from mlflow_databricks_artifacts.utils.rest_utils import http_put
@@ -14,13 +15,13 @@ def put_block(sas_url, block_id, data, headers):
 
     :param sas_url: A shared access signature URL referring to the Azure Block Blob
                     to which the specified data should be staged.
-    :param block_id: A base64-encoded string identifying the block. For more information, see
-                     https://docs.microsoft.com/en-us/rest/api/storageservices/put-block.
+    :param block_id: A base64-encoded string identifying the block.
     :param data: Data to include in the Put Block request body.
     :param headers: Additional headers to include in the Put Block request body
                     (the `x-ms-blob-type` header is always included automatically).
     """
-    headers = dict(headers)
+    # Copy the headers to avoid mutating the input `headers` dictionary
+    headers = deepcopy(headers)
     headers.update(_PUT_BLOCK_HEADERS)
 
     request_url = _append_query_parameters(
@@ -38,7 +39,7 @@ def put_block(sas_url, block_id, data, headers):
 def put_block_list(sas_url, block_list, headers):
     """
     Performs an Azure `Put Block List` operation
-    (https://docs.microsoft.com/en-us/rest/api/storageservices/put-block)
+    (https://docs.microsoft.com/en-us/rest/api/storageservices/put-block-list)
 
     :param sas_url: A shared access signature URL referring to the Azure Block Blob
                     to which the specified data should be staged.
@@ -75,7 +76,7 @@ def _build_block_list_xml(block_list):
         # Because block IDs are base64-encoded and base64 strings do not contain
         # XML special characters, we can safely insert the block ID directly into
         # the XML document
-        xml += "<Latest>{}</Latest>\n".format(block_id)
+        xml += "<Uncommitted>{}</Uncommitted>\n".format(block_id)
     xml += "</BlockList>"
     return xml
 

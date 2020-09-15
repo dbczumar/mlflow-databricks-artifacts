@@ -19,7 +19,7 @@ try:
         GetCredentialsForRead,
         ArtifactCredentialType,
     )
-except Exception:
+except ImportError:
     from mlflow_databricks_artifacts.protos.databricks_artifacts_pb2 import (
         DatabricksMlflowArtifactsService,
         GetCredentialsForWrite,
@@ -30,6 +30,7 @@ except Exception:
 from mlflow_databricks_artifacts.azure.client import put_block, put_block_list
 from mlflow_databricks_artifacts.utils.databricks_utils import get_databricks_host_creds
 from mlflow_databricks_artifacts.utils.file_utils import relative_path_to_artifact_path, yield_file_in_chunks
+from mlflow_databricks_artifacts.utils.logging_utils import eprint
 from mlflow_databricks_artifacts.utils.proto_json_utils import message_to_json
 from mlflow_databricks_artifacts.utils.rest_utils import (
     call_mlflow_endpoint,
@@ -45,7 +46,6 @@ from mlflow_databricks_artifacts.utils.uri import (
     remove_databricks_profile_info_from_artifact_uri,
 )
 
-_logger = logging.getLogger(__name__)
 _PATH_PREFIX = "/api/2.0"
 _AZURE_MAX_BLOCK_CHUNK_SIZE = 100000000  # Max. size of each block allowed is 100 MB in stage_block
 _DOWNLOAD_CHUNK_SIZE = 100000000
@@ -174,7 +174,7 @@ class DatabricksArtifactRepository(artifact_repo.ArtifactRepository):
                     put_block(credentials.signed_uri, block_id, chunk, headers=headers)
                 except requests.HTTPError as e:
                     if e.response.status_code in [401, 403]:
-                        _logger.warning(
+                        eprint(
                             "Failed to authorize request, possibly due to credential expiration."
                             "Refreshing credentials and trying again.."
                         )
@@ -189,7 +189,7 @@ class DatabricksArtifactRepository(artifact_repo.ArtifactRepository):
                 put_block_list(credentials.signed_uri, uploading_block_list, headers=headers)
             except requests.HTTPError as e:
                 if e.response.status_code in [401, 403]:
-                    _logger.warning(
+                    eprint(
                         "Failed to authorize request, possibly due to credential expiration."
                         "Refreshing credentials and trying again.."
                     )

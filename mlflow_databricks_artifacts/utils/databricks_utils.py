@@ -5,10 +5,9 @@ import subprocess
 from mlflow.exceptions import MlflowException
 from databricks_cli.configure import provider
 
+from mlflow_databricks_artifacts.utils.logging_utils import eprint
 from mlflow_databricks_artifacts.utils.rest_utils import MlflowHostCreds
 from mlflow_databricks_artifacts.utils.uri import get_db_info_from_uri
-
-_logger = logging.getLogger(__name__)
 
 
 def _get_dbutils():
@@ -56,7 +55,7 @@ def get_databricks_host_creds(server_uri=None):
     """
     profile, path = get_db_info_from_uri(server_uri)
     if not hasattr(provider, "get_config"):
-        _logger.warning(
+        eprint(
             "Support for databricks-cli<0.8.0 is deprecated and will be removed"
             " in a future version."
         )
